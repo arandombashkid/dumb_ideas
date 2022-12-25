@@ -1,7 +1,5 @@
 #!/bin/bash
 
-chmod 0666 /sys/class/backlight/psb-bl/brightness
-
 # make sure zram module is loaded
 lsmod | grep zram >/dev/null || modprobe zram
 
