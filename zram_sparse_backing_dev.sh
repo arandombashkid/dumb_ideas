@@ -9,7 +9,7 @@ bd_size=23G
 
 # no idea why, but writing to several backing_dev simultaneously is faster, 
 # even if they're all on a same hdd. Idk, maybe it has something to do with multithreading
-for bd in /sparseswap0 /sparseswap1 /sparseswap2   # 3 devices, 69gb swap total
+for bd in /home/sparseswap0 /home/sparseswap1 /home/sparseswap2   # 3 devices, 69gb swap total
 do
  truncate -s 1 $bd # reduce to dust previously inflated files to save space
  truncate -s $bd_size $bd # set apparent size
