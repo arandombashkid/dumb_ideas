@@ -38,13 +38,6 @@ if ! zcat /proc/config.gz | grep CONFIG_ZRAM_MEMORY_TRACKING | grep y
 fi
 
 
-
-zram_time=/tmp/zram_last_written_idle
-slow_writeback_time=/tmp/slow_writeback_last
-
-# fake "last written" value in seconds , used once on script startup
-initial_stamp=1800
-
 # amount of seconds beyond which everything is written without consideration of data age.
 # default is to write whatever is older than 3 days
 max_age=$(( 3600 * 24 * 3 ))
@@ -105,12 +98,11 @@ do_write idle writeback
 }
 
 get_zram_age(){
-age=$(( $EPOCHSECONDS - `cat $zram_time` ))
+# oldest _not_already_written_ zram page
 oldest_zram_page=`cat /sys/kernel/debug/zram/zram*/block_state | grep -v w | awk '{print $2}' | sort -n | head -n 1 | awk '{printf "%.0f", $1 }'`
-if [ $age -gt $max_age ]
+if [ $oldest_zram_age -gt $max_age ]
  then age=$max_age
-elif [ $age -gt $oldest_zram_page ]
- then age=$oldest_zram_page
+else age=$oldest_zram_page
 fi
 }
 
@@ -199,14 +191,29 @@ swapoff_pid=`ps -aux | grep swapoff | grep $temp_swap | grep -v grep | awk '{pri
    zswap 1 # enabling full zswap functionality to soften up the performance hit
 }
 
+do_slow_writeback(){
+# while zram is over allowable limit, but hasn't approached a hard limit yet, begin to slowly write stuff
+# every 60 seconds. Helps to delay the need to trigger temporary swap.
+slow_writeback_time=/tmp/slow_writeback_last
+touch $slow_writeback_time
+if [ `total_zram` -gt $(( $compressed_ram_limit /100 * $allow_left_compressed_ram_limit )) ] && [ `total_zram` -lt $compressed_ram_limit ] && [ $EPOCHSECONDS -gt $(( `cat $slow_writeback_time` + 60 )) ] 
+      then get_zram_age ; do_writeback $age
+           if [ $age -ge $(( 3600 * 6 )) ]
+              then time_chunk=3600
+           elif [ $age -le 3600 ] 
+              then time_chunk=120
+           else time_chunk=600
+           fi
+          age=$(( $age - $time_chunk )) 
+          echo $EPOCHSECONDS >$slow_writeback_time
+fi
+}
 # End of temp_swap section
 #######
 #######
 #######
 
-# produce initial timestamp to work with 
-[ -e $zram_time ] || echo $(( $EPOCHSECONDS - $initial_stamp )) > $zram_time
-[ -e $slow_writeback_time ] || echo $EPOCHSECONDS >$slow_writeback_time
+
 
 optimize_for_zram
 
@@ -234,27 +241,10 @@ do
      fi
      age=$(( $age - $time_chunk )) 
    done 
-   
-# mark time of successful writeback, minus age of not written pages, so that next writeback will
-# start right where the previous stopped, instead of starting at the time of previous writeback,
-# which causes useful data being dumped to disk swap unnecessarily
-   echo $(( $EPOCHSECONDS - $age )) >$zram_time 
-   sleep 0.2
    [ -z $temp_swap_on ] || [ $temp_swap_on != 0 ] && temp_swap 0 
    optimize_for_zram
-
- elif [ `total_zram` -gt $(( $compressed_ram_limit /100 * $allow_left_compressed_ram_limit )) ] && [ `total_zram` -lt $compressed_ram_limit ] && [ $EPOCHSECONDS -gt $(( `cat $slow_writeback_time` + 60 )) ] 
-      then get_zram_age ; do_writeback $age
-           if [ $age -ge $(( 3600 * 6 )) ]
-              then time_chunk=3600
-           elif [ $age -le 3600 ] 
-              then time_chunk=120
-           else time_chunk=600
-           fi
-          age=$(( $age - $time_chunk )) 
-         echo $(( $EPOCHSECONDS - $age )) >$zram_time
-          echo $EPOCHSECONDS >$slow_writeback_time
  fi
+[ -z $temp_swap_on ] || [ $temp_swap_on != 0 ] && do_slow_writeback
 # check every 5 seconds if $compressed_ram_limit was exceeded 
  sleep 5 
 done
