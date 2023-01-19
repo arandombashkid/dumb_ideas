@@ -24,7 +24,7 @@ do
   then echo zstd >comp_algorithm # maximum effort
    echo $bd_size >disksize
    mkswap /dev/$zd
-   swapon -p 1 /dev/$zd # need to have all zram dev being written to simultaneously, 
+   swapon -d -p 1 /dev/$zd # need to have all zram dev being written to simultaneously, 
                         # so later writing to disk would also be done simultaneously
   else echo "$swap is probably busy, can't be used, skipping"
  fi
